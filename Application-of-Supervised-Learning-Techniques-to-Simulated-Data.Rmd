@@ -1,0 +1,348 @@
+---
+title: "Report for Final Project Task 1"
+author: "Ranveer Kaur and Gabriel Afriyie"
+date: "14/03/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+\section{Introduction}
+
+In task $1$ of our project, we were asked to predict $3$ unknown responses $Y1$, $Y2$ and $Y3$ of $100$ observations. We were provided with a training dataset of $5000$ with $50$ predictor variables ($X1,\dots,X50$). $Y1$ and $Y2$ are continuous variables and $Y3$ is a categorical variable with $2$ levels ($0$ and $1$). The main objective of task 1 was to apply various regression and classification methods on the training dataset to predict ($Y1$, $Y2$) and $Y3$, respectively. The best method is selected based on their cross validation error (CV error).
+
+\section{Model Fitting and Predictions For $Y1$}
+
+In this section, we seek to predict $Y1$ in the training data using test data. The following models will be considered: Linear regression model, Ridge regression model, Lasso rgression model and Regression trees. We begin by loading the following packages that will be useful in our analysis. 
+
+```{r,warning=FALSE, message=FALSE}
+library(dplyr)
+library(leaps)
+library(glmnet)
+library(MASS)
+library(DAAG)
+library(rpart)
+library(e1071)
+library(rpart.plot)
+```
+
+We also load the training and test datasets.
+
+```{r, warning=FALSE, message=FALSE}
+train <- read.csv("C:/Users/gafri/Desktop/Winter 2020/Statistical learning/Project/train.csv", 
+                  header=TRUE)
+test <- read.csv("C:/Users/gafri/Desktop/Winter 2020/Statistical learning/Project/test.csv", 
+                 header=TRUE)
+```
+
+Firstly, we fit a linear model of $Y1$ on the predictor variables $X1,\dots,X50$ and calculate the cross validation error with 10 folds.
+
+
+```{r, warning=FALSE, message=FALSE}
+Linearmodel = lm(Y1~., data = train[,-c(2,3)])
+summary(Linearmodel)
+
+```
+\ We test the hypothesis:
+$H_{0}:\beta_{1}=\beta_{2}=\dots=\beta_{50}=0$ \
+$H_{1}:$at least one of $\beta_{i}\neq0$ $i=1,2,\dots,50$ \
+
+We reject $H_{0}$ at $\alpha=0.05$ because the $p-$value$< \alpha$. From the summary table we see that intercept and the variables $X7,X8,X10,X23,X26,X29,X38$ are all significant, since their $p-$values are less than $0.05$. So, our final linear model will contain these predictors. $R^2=0.5145$ means that approximately, $51\%$ of the total  variability in $Y1$ is explained by the model.
+
+```{r, warning=FALSE, message=FALSE}
+cv_error = cv.lm(train, Linearmodel, m = 10, plotit = TRUE, printit = FALSE)
+
+```
+
+\ The cv error for our linear model is  $0.000468$ which is sufficiently small. The plot gives us the cross validation predicted values for the $10$ different folds.
+
+
+ We now fit the ridge regression model.
+ 
+```{r, warning=FALSE, message=FALSE}
+X = model.matrix(Y1~., train[,-c(2:3)])
+Y = train$Y1
+ridgemod = glmnet(X,Y, alpha = 0)
+ridgemod
+plot(ridgemod, xvar = "lambda")
+legend("topright", lwd = 2, col = 1:50, legend = colnames(X), cex = .3046)
+```
+ 
+
+The ridge regression penalizes the coefficients, such that those who are the least efficient in our estimation will "shrink" the fastest.  As the $\lambda$ increases, we are penalizing more. From the plot, each line represents a coefficient whose value is going to zero as $\lambda$ increases. The faster a coefficient is shrinking the less important it is in prediction. To choose the best $\lambda$ we consult the MSE vs $\lambda$ plot. This is obtained by performing a cross validation.    
+ 
+```{r, warning=FALSE, message=FALSE}
+cv.out = cv.glmnet(X,Y,alpha=0)
+cv.out
+plot(cv.out)
+coef(cv.out)
+bestlam=cv.out$lambda.min
+test1 = model.matrix(~.,test)
+rY1hat = predict(ridgemod, s= bestlam, newx = test1)
+```
+ 
+The lowest point on the curve indictates the optimal $\lambda$: the $\log$ value of $\lambda$ that best minimized the error in cross validation. Ridge regression includes all the predictors in the final model and gives cv error $=0.000468$. We can see that the cv error for ridge regression is approximately same as for linear regression but in linear model we have less number of predictors. So, in our case linear regresson performs much better than ridge regression. We now fit the Lasso model.
+
+
+```{r, warning=FALSE, message=FALSE}
+lassomod = glmnet(X,Y, alpha = 1)
+lassomod
+plot(lassomod, xvar = "lambda")
+legend("topright", lwd = 2, col = 1:50, legend = colnames(X), cex = .3046)
+```
+Similar to ridge regression, we plot the coefficients against different values of $\lambda$. Lasso regression forces some of the coefficients to exactly $0$. This may be achieved by increasing the value of $\lambda$. From the plot above, the number of coefficients in our model decrease from $48$ to $14$, as $\log \lambda$ increases from $-12$ to $-6$. We select the optimum $\lambda$ in the plot below.
+
+```{r, warning=FALSE, message=FALSE}
+Lassocv.out=cv.glmnet(X,Y,alpha=1)
+Lassocv.out
+plot(Lassocv.out)
+coef(Lassocv.out)
+bestlam=Lassocv.out$lambda.min
+test1 = model.matrix(~.,test)
+Y1hat = predict(lassomod, s= bestlam, newx = test1)
+```
+
+In Lasso, our best model contains $29$ predictors and cv error for this is $0.000466$. But the model for $1$SE from minimum $\lambda$ contains $19$ predictors and the cv error is $0.000473$ which is approximate to that for best model. The main point of the $1$SE rule, with which we agree, is to choose the simplest model whose accuracy is comparable with the best model. We introduce another regression method: Regression Trees.
+
+
+Another regression method to consider is Regression Trees. Regression trees are built through a process known as binary recurssive partitioning which is an iterative process that splits the data into partitions or branches and then continues splitting each partition into smaller groups, as the method moves up each branch. We apply this method to our data to predict $Y1$.
+
+```{r, warning=FALSE, message=FALSE}
+library(rpart)
+fit1 <- rpart(Y1~., method="anova", data=train[,-c(2,3)], model = TRUE )
+printcp(fit1)
+rpart.plot(fit1, type = 2, extra = 1, cex = 0.6, main="Regression Tree for Y1")
+```
+The following variables are used in the contruction of the tree: $X19, X20, X32, X37, X38, X48$. The root node error is $0.00094091$. The rel error of each iteration of the tree is the fraction of mislabeled elements in the iteration relative to the fraction of mislabeled elements in the root and nsplit is the number of splits in the tree. When rpart grows a tree it performs 10-fold cross validation on the data. We note that the xerror (cross validation error) gets better with each split. The tree diagram also shows the marked splits (for example: $X37>=-0.561$). Also, at the terminating point of each branch, is the number of elements from the data file that fit at the end of that branch. There are $9$ terminal nodes. To get a better picture of the change in xerror as the splits increase, we look at a new visualization.
+
+```{r, warning=FALSE, message=FALSE}
+par(mfrow=c(1,2)) 
+rsq.rpart(fit1)
+```
+
+The first chart shows how R-Squared improves as splits increase. The second chart shows how xerror decreases with each split. This shows that the model does not need pruning. We can also make predictions on the test data.
+
+```{r, warning=FALSE, message=FALSE}
+pred1 = predict(fit1, newdata = test, method = "anova")
+```
+
+Based on the results obtained above, there is not much difference between cv errors for the first $3$ models but cv error for the tree model is $0.74926$ which is bigger as compared to other models. So, the linear model is selected as the best model because it contains the least number of significant predictors with minimum cv error. We now test the accuracy of the selected model by making predictions using test data.
+
+```{r, warning=FALSE, message=FALSE}
+lmY1hat = predict(Linearmodel, newdata = test)
+
+```
+
+\section{Model Fitting and Predictions For $Y2$}
+
+The same procedures for $Y1$ are undertaken for $Y2$. We fit the Linear, Ridge, Lasso and Regression tree models on the training data. We select the model with the least cv error and make some predictions based on the test data. 
+
+```{r, warning=FALSE, message=FALSE}
+Linearmodel2 = lm(Y2~., data = train[,-c(1,3)])
+summary(Linearmodel2)
+```
+
+```{r, warning=FALSE, message=FALSE}
+cv_error2 = cv.lm(train, Linearmodel2, m = 10, plotit = TRUE, printit = FALSE)
+lmY2hat = predict(Linearmodel2, newdata = test)
+```
+
+
+Here, only the intercept is significant. In our final model there is no predictor variable. CV error is $0.000203$. We do not consider this model because its adjusted $R^2$ is negative. The ridge regression model is fitted as follows:
+
+
+
+```{r, warning=FALSE, message=FALSE}
+X_2 = model.matrix(Y2~., train[,-c(1,3)])
+Y_2 = train$Y2
+ridgemod2 = glmnet(X_2,Y_2, alpha = 0)
+ridgemod2
+plot(ridgemod2, xvar = "lambda")
+legend("topright", lwd = 2, col = 1:50, legend = colnames(X), cex = .3046)
+```
+\ From the plot above, all the coefficients are shrunk closer to $0$ as $\lambda$ increases. 
+
+```{r, warning=FALSE, message=FALSE}
+cv.out2 = cv.glmnet(X_2,Y_2,alpha=0)
+cv.out2
+plot(cv.out2)
+coef(cv.out2)
+bestlam2=cv.out2$lambda.min
+```
+
+Ridge regression includes all the predictors in the final model and gives cv error $=0.0002$. We can see that the cv error for ridge regression is almost same as linear regression. So, in this case ridge regression is much better than linear regression as linear regression doesn't contain any predictor. Now we will try to fit the Lasso regression.
+
+```{r, warning=FALSE, message=FALSE}
+lassomod2 = glmnet(X_2,Y_2, alpha = 1)
+lassomod2
+plot(lassomod2, xvar = "lambda")
+legend("topright", lwd = 2, col = 1:50, legend = colnames(X), cex = .3046)
+Lassocv.out2=cv.glmnet(X_2,Y_2,alpha=1)
+Lassocv.out2
+plot(Lassocv.out2)
+coef(Lassocv.out2)
+bestlam2=Lassocv.out2$lambda.min
+lY2hat = predict(lassomod2, s= bestlam2, newx = test1)
+```
+
+Lasso forces all coefficients except the intercept to $0$. This means all the $3$ methods perform poorly. Now we will try Regression Tree.
+
+
+```{r, warning=FALSE, message=FALSE}
+fit <- rpart(Y2~., method="anova", data=train[,-c(1,3)], model = TRUE)
+printcp(fit)
+rpart.plot(fit, type = 2, extra = 1, cex = 0.6, main="Regression Tree for Y2")
+```
+
+The following variables are used in the contruction of the tree: $X6, X37, X40, X47, X49$. The root node error is $0.00019982$. We note that the xerror (cross validation error) gets better with each split. The tree diagram also shows the marked splits (for example: $X47>=-0.74$). Also, at the terminating point of each branch, is the number of elements from the data file that fit at the end of that branch. There are $12$ terminal nodes. To get a better picture of the change in xerror as the splits increase, we look at a new visualization just like in case of Y1.
+
+
+```{r, warning=FALSE, message=FALSE}
+par(mfrow=c(1,2)) 
+rsq.rpart(fit)
+```
+
+
+From the first chart it is clear that R-square is increasing with the increasing number of splits. The second chart shows how xerror decreases with each split. This shows that the model does not need pruning. We can also make predictions on the test data.
+
+```{r, warning=FALSE, message=FALSE}
+pred2 = predict(fit, newdata = test, method = "anova")
+```
+
+Since, linear and lasso models contain no predictor so we are rejecting these two. Moreover, from ridge model and tree model, cv error is minimum for ridge. So, in case of Y2 ridge model is the best one. We now test the accuracy of the selected model by making predictions using test data. 
+
+```{r, warning=FALSE, message=FALSE}
+rY2hat = predict(ridgemod2, s= bestlam2, newx = test1)
+```
+
+\section{Model Fitting and Predictions For $Y3$}
+
+In this section, we will study $4$ different algorithms and determine the best in terms of predicting $Y3$. We will consider:
+
+\begin{itemize}
+\item Logistic Regression
+\item Linear Discriminant Analysis (LDA)
+\item Quadratic Discriminant Analysis (QDA)
+\item Support Vector Machines (SVM)
+\end{itemize}
+
+We take a look at the structure of $Y3$.
+```{r, warning=FALSE, message=FALSE}
+str(train$Y3)
+```
+
+We can see Y3 is an integer. But for classification Y3 should be a factor. So firstly change Y3 into factor and generate new data with Y3 as factor.
+
+```{r, warning=FALSE, message=FALSE}
+Y3 = factor(train$Y3)
+train1 = cbind(Y3, train[,-3])
+```
+
+Firstly, we fit a Logistic regression for $Y3$.
+
+```{r, warning=FALSE, message=FALSE}
+glm.fit = glm(Y3~., data = train1[,-c(2,3)], family = binomial)
+summary(glm.fit)
+```
+
+From the output, it is clear that in our case the logistic regression algorithm does not converge. We reject logistic classifier and fit a Linear discriminant analysis (LDA) model. LDA is mainly used to classify multiclass classification problems. To make a prediction the model estimates the input data matching probability to each class by using Bayes theorem.
+
+
+```{r, warning=FALSE, message=FALSE}
+ldafit = lda(Y3~., data = train1[,-c(2,3)])
+ldafit
+```
+
+LDA returns the prior probability of each class. These probabilities are the ones that already exist in the training data which are $0.4894, 0.5106$ for class $0~and~1$ respectively. The second thing that we can see are the Group means, which are the average of each predictor within each class. The last one are the coefficients of linear discreminants. We will now calculate the cv error for $10$ folds.
+
+```{r, warning=FALSE, message=FALSE}
+K = 10
+folds = cut(seq(1,nrow(train1)), breaks = K, labels = FALSE)
+set.seed(1)
+cv.lda = sapply(1:K, FUN = function(i){
+  testid = which(folds == i, arr.ind = TRUE)
+  Test1 = train1[testid,]
+  Train1 = train1[-testid,]
+  lda_fit = lda(Y3~., data = Train1[,-c(2,3)])
+  lda.pred = predict(lda_fit, Test1[,-c(2,3)])
+  cv.est.lda = mean(lda.pred$class!=Test1$Y3)
+  return(cv.est.lda)
+})
+cv.lda
+mean(cv.lda)
+```
+
+CV error is $0.029$. Further make the predictions based on test data.
+
+```{r, warning=FALSE, message=FALSE}
+preds = predict(ldafit, test)
+```
+
+
+We will do the same for another method known as Quadratic discriminant analysis(QDA). QDA allows for each class in the dependent variable to have its own covariance rather than a shared covariance as in LDA.
+
+```{r, warning=FALSE, message=FALSE}
+qdafit = qda(Y3~., data = train1[,-c(2,3)])
+qdafit
+```
+
+```{r, warning=FALSE, message=FALSE}
+K = 10
+folds = cut(seq(1,nrow(train)), breaks = K, labels = FALSE)
+set.seed(1)
+cv.qda = sapply(1:K, FUN = function(i){
+  testid = which(folds == i, arr.ind = TRUE)
+  Test1 = train1[testid,]
+  Train1 = train1[-testid,]
+  qda_fit = qda(Y3~., data = Train1[,-c(2,3)])
+  qda.pred = predict(qda_fit, Test1[,-c(2,3)])
+  cv.est.qda = mean(qda.pred$class!=Test1$Y3)
+  return(cv.est.qda)
+})
+cv.qda
+mean(cv.qda)
+```
+
+For QDA, cv error is $0.077$. We will calculate predicted classes for test data.
+
+```{r, warning=FALSE, message=FALSE}
+preds = predict(qdafit, test)
+```
+
+
+We will now build linear SVM classifier. SVM classifiers are well-known for good prediction capabilities. A k-fold cross validation with 10 folds is performed to assess the quality of the classifier.
+
+```{r, warning=FALSE, message=FALSE}
+set.seed(1)
+tune_out = tune(svm,
+Y3~.,
+data = train1[,-c(2,3)],
+kernel = "linear",
+ranges = list(cost = c(0.001, 0.01, 0.1, 1,5,10,100)))
+summary(tune_out)
+```
+
+For the SVM with a linear kernel, the cost paramter, $c=10$ produces the SVM with the smallest cross validation error ($0.0066$). We can then select the best model and use it for predictions on the test set.
+
+```{r, warning=FALSE, message=FALSE}
+best_model = tune_out$best.model
+best_model
+```
+
+From the above outputs, cv error is minimum for linear SVM classifier. Hence this is best classifier for Y3. We can then check the accuracy for our selected classifier by using predicted classes from test data.
+
+```{r, warning=FALSE, message=FALSE}
+svm.preds = predict(best_model, newdata = test)
+```
+
+
+\section{Conclusion}
+We were tasked to predict 2 continuous variables and a categorical variable. Various algorithms were implemented for each variable. The best method for predicting each variable was selected based on their $10$-fold cross validation (cv) error. The linear regression model had the least cv error for predicting $Y1$, Ridge regression for $Y2$ and Linear Support Vector Machines (SVM) for $Y3$.
+
+\ Predictions for these response variables were made on the test data and were stored in a csv file. Several other prediction and classification techniques could have been used for the task. It is recommended to the reader to investigate further with techniques such as KNN, Neural Networks and Random Forests.
+
+
+
+
